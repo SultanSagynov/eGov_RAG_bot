@@ -13,16 +13,34 @@ from dotenv import load_dotenv, find_dotenv
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
 
-
 # os.environ['SSL_CERT_FILE'] = certifi.where()
 os.environ['SSL_CERT_FILE'] = '/etc/ssl/certs/ca-certificates.crt'
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def rerank_results(query_embedding, service_names, maksat_model):
+    logger.info("Reranking results (optimized)")
+    if not service_names:
+        return []
+    name_embeddings = maksat_model.encode(service_names, batch_size=12)['dense_vecs']
+    
+    query_tensor = torch.tensor(query_embedding).unsqueeze(0)  # [1, dim]
+    names_tensor = torch.tensor(name_embeddings)              # [N, dim]
+
+    similarities = torch.nn.functional.cosine_similarity(
+        query_tensor, names_tensor
+    )
+    reranked_results = list(zip(service_names, similarities.tolist()))
+    reranked_results.sort(key=lambda x: x[1], reverse=True)
+    logger.debug(f"Full reranked services: {reranked_results}")
+    logger.info(f"Top 3 reranked services: {reranked_results[:3]}")
+    
+    return [item[0] for item in reranked_results[:3]]
+
 class Pipeline:
     def __init__(self):
         self.egov_test_pipeline = None
-        self.name = "eGov_V2_OpenAI"
+        self.name = "eGov_V2_OpenAI_rerank1"
 
     async def on_startup(self):
         logger.info("Starting up pipeline")
@@ -40,23 +58,25 @@ class Pipeline:
                         max_length=8192,  # Adjust max_length to speed up if needed
                     )['dense_vecs']
                 logger.debug("Query embedding computed")
-                torch.cuda.empty_cache()
 
                 # Convert the embedding to a string for SQL query
                 embedding_str = str(embedding[0].tolist())
+                query_embedding = embedding[0]
                 logger.debug(f"Embedding string (first 50 chars): {embedding_str[:50]}...")
 
                 # Fetch top 3 service names based on embedding similarity
                 sql_query1 = """
                     SELECT name FROM egov_general_ru
                     ORDER BY "embedding" <=> (%s)
-                    LIMIT 3;
+                    LIMIT 10;
                     """
                 logger.debug("Executing SQL query to fetch service names")
                 cursor.execute(sql_query1, (embedding_str,))
                 name_records = cursor.fetchall()
                 service_names = [record[0] for record in name_records]
                 logger.info(f"Fetched service names: {service_names}")
+                service_names = rerank_results(query_embedding, service_names, maksat_model)
+                torch.cuda.empty_cache()
 
                 # Ensure there are exactly 3 names for the IN clause
                 service_names += [None] * (3 - len(service_names))
