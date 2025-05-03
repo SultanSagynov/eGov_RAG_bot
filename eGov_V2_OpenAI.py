@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI
 import torch
 import psycopg2
 from typing import List, Union, Generator, Iterator
@@ -66,9 +66,9 @@ class Pipeline:
 
                 # Fetch top 3 service names based on embedding similarity
                 sql_query1 = """
-                    SELECT name FROM egov_general_ru
+                    SELECT name FROM egov_updated_ru
                     ORDER BY "embedding" <=> (%s)
-                    LIMIT 10;
+                    LIMIT 15;
                     """
                 logger.debug("Executing SQL query to fetch service names")
                 cursor.execute(sql_query1, (embedding_str,))
@@ -85,7 +85,7 @@ class Pipeline:
 
                 # Fetch the relevant chunks from egov_final_chunks
                 sql_query2 = """
-                    SELECT * FROM egov_general_2_ru
+                    SELECT * FROM egov_updated_2_ru
                     WHERE name IN (%s, %s, %s) and chunks != ''
                     ORDER BY "embedding" <=> (%s)
                     LIMIT 3;
@@ -147,8 +147,7 @@ class Pipeline:
         question = user_message
         context = ""
         OPENAI_API_KEY = os.getenv('NIT_OPENAI_API_KEY')
-        # OLLAMA_BASE_URL = "http://100.119.234.241:11434"
-        # MODEL = "qwen2.5:72b-instruct"
+        client = OpenAI(api_key=OPENAI_API_KEY)
         headers = {
             "Authorization": f"Bearer {OPENAI_API_KEY}",
             "Content-Type": "application/json"
@@ -160,7 +159,7 @@ class Pipeline:
                 if len(str(messages)) / 2 > 110000:
                     messages = messages[len(messages)//2:]
                     logger.debug("Chat history truncated due to length")
-                initial_response = openai.chat.completions.create(
+                initial_response = client.chat.completions.create(
                     messages=[
                         {
                         "role": "user",
@@ -196,10 +195,7 @@ class Pipeline:
                     host=os.getenv("NIT_DB_HOST_int"),
                     port=os.getenv("NIT_DB_PORT")
                 )
-                #logger.debug(f"Database parameters: {db_params}")
 
-                #db_conn = psycopg2.connect(**db_params)
-                # db_conn = psycopg2.connect(database="postgres", user="maksat.k", password="692132", host="192.168.222.117", port="8000")
                 logger.info("Database connection established")
                 cursor = db_conn.cursor()
                 
@@ -239,7 +235,7 @@ class Pipeline:
             7. **Unrelated Questions**: Ask for clarification if unrelated to eGov like:
             "К сожалению, мы не смогли найти информацию. Возможно, этой услуги нет, или запрос требует большего контекста. Не могли бы вы перефразировать или предоставить дополнительные подробности?"
             """
-            response = openai.chat.completions.create(
+            response = client.chat.completions.create(
                         messages=[
                             {"role": "system", 
                              "content": system_prompt},
@@ -254,7 +250,7 @@ class Pipeline:
                         stream = True
                     )
         else:
-            response = openai.chat.completions.create(
+            response = client.chat.completions.create(
                         messages=[
                             {
                             "role": "user",
