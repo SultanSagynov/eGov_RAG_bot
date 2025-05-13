@@ -40,7 +40,7 @@ def rerank_results(query_embedding, service_names, maksat_model):
 class Pipeline:
     def __init__(self):
         self.egov_test_pipeline = None
-        self.name = "eGov_V2_OpenAI_rerank1"
+        self.name = "eGov_V2_OpenAI"
 
     async def on_startup(self):
         logger.info("Starting up pipeline")
@@ -68,7 +68,7 @@ class Pipeline:
                 sql_query1 = """
                     SELECT name FROM egov_updated_ru
                     ORDER BY "embedding" <=> (%s)
-                    LIMIT 15;
+                    LIMIT 10;
                     """
                 logger.debug("Executing SQL query to fetch service names")
                 cursor.execute(sql_query1, (embedding_str,))
